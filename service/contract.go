@@ -33,9 +33,7 @@ func (c *contractInstance) deploy(ctx context.Context, o *transactionOptions) (*
 	}
 
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
-		c.address = address
-		c.coin = instance
-		c.setupCoin()
+		c.setupCoin(address, instance)
 		logrus.Info("tx success: ", txHash.String())
 	})
 	return &address, nil
@@ -47,14 +45,14 @@ func (c *contractInstance) load(addr common.Address) error {
 		return err
 	}
 
-	c.address = addr
-	c.coin = instance
-	c.setupCoin()
+	c.setupCoin(addr, instance)
 
 	return nil
 }
 
-func (c *contractInstance) setupCoin() {
+func (c *contractInstance) setupCoin(address common.Address, instance *coin.Coin) {
+	c.address = address
+	c.coin = instance
 	c.balances = make(map[common.Address]*big.Int)
 	c.resourseCoin = big.NewInt(0)
 }
@@ -71,9 +69,6 @@ func (c *contractInstance) mintTokens(o *transactionOptions, count *big.Int) err
 	}
 
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
-		if c.resourseCoin == nil {
-			c.resourseCoin = new(big.Int).Add(big.NewInt(0), count)
-		}
 		c.resourseCoin = new(big.Int).Add(c.resourseCoin, count)
 		logrus.Info("tx success: ", txHash.String())
 	})
@@ -95,6 +90,10 @@ func (c *contractInstance) sendTokens(o *transactionOptions, to common.Address, 
 	}
 
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
+		defer func() {
+			logrus.Info("tx success: ", txHash.String())
+		}()
+
 		bal, ok := c.balances[to]
 		if !ok {
 			c.balances[to] = new(big.Int).Add(big.NewInt(0), count)
@@ -102,7 +101,6 @@ func (c *contractInstance) sendTokens(o *transactionOptions, to common.Address, 
 		}
 
 		c.balances[to] = new(big.Int).Add(bal, count)
-		logrus.Info("tx success: ", txHash.String())
 	})
 
 	logrus.Info("Tx hash: ", tx.Hash().String())
@@ -115,9 +113,7 @@ func (c *contractInstance) getBalance(whom common.Address) (*big.Int, error) {
 		return bal, nil
 	}
 
-	val, err := c.coin.GetBalance(&bind.CallOpts{
-		Pending: true,
-	}, whom)
+	val, err := c.coin.GetBalance(&bind.CallOpts{Pending: true}, whom)
 	if err != nil {
 		return nil, fmt.Errorf("err get balance: %w", err)
 	}

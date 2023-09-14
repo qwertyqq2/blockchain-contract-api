@@ -22,8 +22,9 @@ type Service interface {
 }
 
 type impl struct {
-	providerUrl     string
-	pk              *ecdsa.PrivateKey
+	providerUrl string
+	pk          *ecdsa.PrivateKey
+
 	contractAddress string
 	contract        contractInstance
 	cli             *ethclient.Client
@@ -33,18 +34,24 @@ type impl struct {
 
 func NewService(conf config.Conf) (Service, error) {
 	serv := &impl{}
-	privateKey, err := crypto.HexToECDSA(conf.PkKey)
-	if err != nil {
-		return nil, fmt.Errorf("cant parse pk")
-	}
-
-	serv.pk = privateKey
-	serv.contractAddress = conf.ContractAddress
 
 	if conf.ProviderUrl == "" {
 		return nil, fmt.Errorf("undefined provider")
 	}
 
+	privateKey, err := crypto.HexToECDSA(conf.PkKey)
+	if err != nil {
+		return nil, fmt.Errorf("cant parse pk")
+	}
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("err parse pub key")
+	}
+
+	serv.address = crypto.PubkeyToAddress(*publicKeyECDSA)
+	serv.pk = privateKey
+	serv.contractAddress = conf.ContractAddress
 	serv.providerUrl = conf.ProviderUrl
 
 	return serv, nil
@@ -66,14 +73,6 @@ func (s *impl) Connect(ctx context.Context) error {
 }
 
 func (s *impl) setup(ctx context.Context) error {
-	publicKey := s.pk.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return fmt.Errorf("err parse pub key")
-	}
-
-	s.address = crypto.PubkeyToAddress(*publicKeyECDSA)
-
 	if s.contractAddress != "" {
 		logrus.Info("Setup contract...")
 		contract := contractInstance{cli: s.cli}
@@ -142,9 +141,14 @@ func (s *impl) SendTokens(ctx context.Context, to common.Address, count *big.Int
 		return fmt.Errorf("err send tokens: %w", err)
 	}
 
+	if err := s.contract.sendTokens(auth, to, count); err != nil {
+		logrus.Error(fmt.Errorf("err send tokens: %w", err))
+		return fmt.Errorf("err send tokens: %w", err)
+	}
+
 	logrus.Info(fmt.Sprintf("Send %s tokens to receiver with address %s", count.String(), to.String()))
 
-	return s.contract.sendTokens(auth, to, count)
+	return nil
 }
 
 func (s *impl) GetBalance(ctx context.Context, address common.Address) (*big.Int, error) {
