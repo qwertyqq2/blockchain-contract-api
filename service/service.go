@@ -7,40 +7,21 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"log"
+	"github.com/sirupsen/logrus"
 	"math/big"
+	"serv/config"
 )
 
 type Service interface {
 	Connect(ctx context.Context) error
+	Deploy(ctx context.Context) (common.Address, error)
 	MintTokens(ctx context.Context, count *big.Int) error
 	SendTokens(ctx context.Context, to common.Address, count *big.Int) error
-}
-
-type Option func(s *impl)
-
-func WithProvider(url string) Option {
-	return func(s *impl) {
-		s.providerUrl = url
-	}
-}
-
-func WithPath(path string) Option {
-	return func(s *impl) {
-		s.repoPath = path
-	}
-}
-
-func WithContractAddress(addr string) Option {
-	return func(s *impl) {
-		s.contractAddress = addr
-	}
+	GetBalance(ctx context.Context, address common.Address) (*big.Int, error)
 }
 
 type impl struct {
-	providerUrl string
-	repoPath    string
-
+	providerUrl     string
 	pk              *ecdsa.PrivateKey
 	contractAddress string
 	contract        contractInstance
@@ -49,32 +30,23 @@ type impl struct {
 	address common.Address
 }
 
-func NewService(opts ...Option) Service {
+func NewService(conf config.Conf) (Service, error) {
 	serv := &impl{}
-
-	for _, o := range opts {
-		o(serv)
-	}
-
-	return serv
-}
-
-func (s *impl) MintTokens(ctx context.Context, count *big.Int) error {
-	auth, err := s.currentAuth(ctx)
+	privateKey, err := crypto.HexToECDSA(conf.PkKey)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("cant parse pk")
 	}
 
-	return s.contract.mintTokens(auth, count, s.address)
-}
+	serv.pk = privateKey
+	serv.contractAddress = conf.ContractAddress
 
-func (s *impl) SendTokens(ctx context.Context, to common.Address, count *big.Int) error {
-	auth, err := s.currentAuth(ctx)
-	if err != nil {
-		return err
+	if conf.ProviderUrl == "" {
+		return nil, fmt.Errorf("undefined provider")
 	}
 
-	return s.contract.sendTokens(auth, to, count)
+	serv.providerUrl = conf.ProviderUrl
+
+	return serv, nil
 }
 
 func (s *impl) Connect(ctx context.Context) error {
@@ -93,68 +65,99 @@ func (s *impl) Connect(ctx context.Context) error {
 }
 
 func (s *impl) setup(ctx context.Context) error {
-	if s.repoPath == "" {
-		log.Println("Generate private key...")
-		pk, err := crypto.GenerateKey()
-		if err != nil {
-			return err
-		}
-		s.pk = pk
-	} else {
-		pk, err := loadPkKey(s.repoPath)
-		if err != nil {
-			return err
-		}
-		s.pk = pk
-	}
-
 	publicKey := s.pk.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
 		return fmt.Errorf("err parse pub key")
 	}
 
-	addr := crypto.PubkeyToAddress(*publicKeyECDSA)
-	s.address = addr
+	s.address = crypto.PubkeyToAddress(*publicKeyECDSA)
 
-	contract := &contractInstance{}
-
-	if s.contractAddress == "" {
-		auth, err := s.currentAuth(ctx)
-		if err != nil {
-			return err
+	if s.contractAddress != "" {
+		logrus.Info("Setup contract...")
+		contract := contractInstance{}
+		addr := common.HexToAddress(s.contractAddress)
+		if err := contract.load(addr, s.cli); err != nil {
+			return fmt.Errorf("err load contract: %w", err)
 		}
-
-		log.Println("Deploy contract...")
-		addr, err := contract.deploy(ctx, s.cli, auth)
-		if err != nil {
-			return err
-		}
-
-		s.contractAddress = addr.String()
-	} else {
-		if err := contract.load(s.contractAddress, s.cli); err != nil {
-			return err
-		}
-
+		s.contract = contract
 	}
+
+	logrus.Info("Service is ready")
+	logrus.Info("Contract address: ", s.contractAddress)
+	logrus.Info("Minter address: ", s.address.String())
+
 	return nil
 }
 
-func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
-	publicKey := s.pk.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("err parse pub key")
-	}
+func (s *impl) Deploy(ctx context.Context) (common.Address, error) {
+	contract := contractInstance{cli: s.cli}
 
-	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := s.cli.PendingNonceAt(ctx, fromAddress)
+	auth, err := s.currentAuth(ctx)
 	if err != nil {
-		return nil, err
+		logrus.Error(fmt.Errorf("err tx oprions: %w", err))
+		return common.Address{}, fmt.Errorf("err tx oprions: %w", err)
 	}
 
-	gasPrice, err := s.cli.SuggestGasPrice(ctx)
+	logrus.Info("Deploy...")
+	addr, err := contract.deploy(ctx, auth)
+	if err != nil {
+		logrus.Errorf("err deploy: %s", err.Error())
+		return common.Address{}, fmt.Errorf("err deploy: %w", err)
+	}
+
+	s.contractAddress = addr.String()
+	s.contract = contract
+
+	logrus.Info("New contract address: ", addr.String())
+
+	return s.contract.address, nil
+}
+
+func (s *impl) MintTokens(ctx context.Context, count *big.Int) error {
+	auth, err := s.currentAuth(ctx)
+	if err != nil {
+		logrus.Error(err)
+		return err
+	}
+
+	logrus.Info("Mint tokens...")
+
+	if err := s.contract.mintTokens(auth, count); err != nil {
+		logrus.Error(fmt.Errorf("err mint tokens: %w", err))
+		return fmt.Errorf("err mint tokens: %w", err)
+	}
+
+	logrus.Info(fmt.Sprintf("Mint %s tokens to %s", count.String(), s.contractAddress))
+
+	return nil
+
+}
+
+func (s *impl) SendTokens(ctx context.Context, to common.Address, count *big.Int) error {
+	auth, err := s.currentAuth(ctx)
+	if err != nil {
+		logrus.Error(fmt.Errorf("err send tokens: %w", err))
+		return fmt.Errorf("err send tokens: %w", err)
+	}
+
+	logrus.Info(fmt.Sprintf("Send %s tokens to receiver with address %s", count.String(), to.String()))
+
+	return s.contract.sendTokens(auth, to, count)
+}
+
+func (s *impl) GetBalance(ctx context.Context, address common.Address) (*big.Int, error) {
+	balance, err := s.contract.getBalance(address)
+	if err != nil {
+		logrus.Error(fmt.Errorf("err get balance: %w", err))
+		return nil, fmt.Errorf("err get balance: %w", err)
+	}
+
+	return balance, nil
+}
+
+func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
+	nonce, err := s.cli.PendingNonceAt(ctx, s.address)
 	if err != nil {
 		return nil, err
 	}
@@ -168,13 +171,9 @@ func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
 		pkKey:    s.pk,
 		chainID:  chainID,
 		nonce:    nonce,
-		gasPrice: gasPrice,
+		gasPrice: big.NewInt(1000000),
 		value:    big.NewInt(0),
-		gasLimit: 3000000,
+		gasLimit: uint64(3000000),
 	}, nil
 
-}
-
-func loadPkKey(repoPath string) (*ecdsa.PrivateKey, error) {
-	return nil, nil
 }

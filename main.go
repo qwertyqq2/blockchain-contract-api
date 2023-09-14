@@ -2,23 +2,62 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gofiber/fiber/v2"
 	"log"
 	"math/big"
+	"serv/config"
 	"serv/service"
 )
 
 func main() {
-	serv := service.NewService(
-		service.WithProvider("https://goerli.infura.io/v3/779b28f2780741df94f2ebac83bd49d1"),
-	)
+	conf, err := config.Parse()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serv, err := service.NewService(conf)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	if err := serv.Connect(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 
+	if err := run(serv); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(serv service.Service) error {
 	app := fiber.New()
+
+	app.Get("/contract/:addr", func(ctx *fiber.Ctx) error {
+		addr := ctx.Params("addr")
+		if addr == "" {
+			return ctx.JSON("incorrect address")
+		}
+
+		address := common.HexToAddress(addr)
+
+		balance, err := serv.GetBalance(ctx.Context(), address)
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(err)
+		}
+
+		return ctx.JSON(fmt.Sprintf("balance: %s", balance.String()))
+	})
+
+	app.Post("/contract", func(ctx *fiber.Ctx) error {
+		address, err := serv.Deploy(ctx.Context())
+		if err != nil {
+			return ctx.Status(fiber.StatusInternalServerError).JSON(err)
+		}
+
+		return ctx.JSON(fmt.Sprintf("contract address: %s", address.String()))
+	})
 
 	app.Post("/contract/mint", func(ctx *fiber.Ctx) error {
 		var mint mintInput
@@ -59,7 +98,7 @@ func main() {
 		return ctx.JSON("ok")
 	})
 
-	app.Listen(":8000")
+	return app.Listen(":8000")
 }
 
 type mintInput struct {

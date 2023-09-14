@@ -5,6 +5,7 @@ go 1.21.0
 require (
 	github.com/ethereum/go-ethereum v1.12.2
 	github.com/gofiber/fiber/v2 v2.49.1
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -25,6 +26,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.15 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
+	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tklauser/go-sysconf v0.3.5 // indirect
 	github.com/tklauser/numcpus v0.2.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect

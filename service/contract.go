@@ -3,9 +3,11 @@ package service
 import (
 	"context"
 	"crypto/ecdsa"
+	"fmt"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/sirupsen/logrus"
 	"math/big"
 	"serv/coin"
 )
@@ -13,18 +15,21 @@ import (
 type contractInstance struct {
 	coin    *coin.Coin
 	address common.Address
+	cli     *ethclient.Client
 }
 
-func (c *contractInstance) deploy(ctx context.Context, cli *ethclient.Client, o *transactionOptions) (*common.Address, error) {
+func (c *contractInstance) deploy(ctx context.Context, o *transactionOptions) (*common.Address, error) {
 	auth, err := c.auth(o)
 	if err != nil {
 		return nil, err
 	}
 
-	address, _, instance, err := coin.DeployCoin(auth, cli)
+	address, tx, instance, err := coin.DeployCoin(auth, c.cli)
 	if err != nil {
 		return nil, err
 	}
+
+	logrus.Info("Tx hash: ", tx.Hash().String())
 
 	c.address = address
 	c.coin = instance
@@ -32,28 +37,35 @@ func (c *contractInstance) deploy(ctx context.Context, cli *ethclient.Client, o 
 	return &address, nil
 }
 
-func (c *contractInstance) load(addr string, cli *ethclient.Client) error {
-	address := common.HexToAddress(addr)
-	instance, err := coin.NewCoin(address, cli)
+func (c *contractInstance) load(addr common.Address, cli *ethclient.Client) error {
+	instance, err := coin.NewCoin(addr, cli)
 	if err != nil {
 		return err
 	}
 
-	c.address = address
+	c.address = addr
 	c.coin = instance
+	c.cli = cli
 
 	return nil
 }
 
-func (c *contractInstance) mintTokens(o *transactionOptions, count *big.Int, minter common.Address) error {
+func (c *contractInstance) mintTokens(o *transactionOptions, count *big.Int) error {
 	auth, err := c.auth(o)
 	if err != nil {
 		return err
 	}
 
-	if _, err := c.coin.Mint(auth, minter, count); err != nil {
+	tx, err := c.coin.Mint(auth, count)
+	if err != nil {
 		return err
 	}
+
+	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
+		fmt.Printf("tx success %s", txHash.String())
+	})
+
+	logrus.Info("Tx hash: ", tx.Hash().String())
 
 	return nil
 }
@@ -64,11 +76,29 @@ func (c *contractInstance) sendTokens(o *transactionOptions, to common.Address, 
 		return err
 	}
 
-	if _, err := c.coin.Send(auth, to, count); err != nil {
+	tx, err := c.coin.Send(auth, to, count)
+	if err != nil {
 		return err
 	}
 
+	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
+		fmt.Printf("tx success %s", txHash.String())
+	})
+
+	logrus.Info("Tx hash: ", tx.Hash().String())
+
 	return nil
+}
+
+func (c *contractInstance) getBalance(whom common.Address) (*big.Int, error) {
+	val, err := c.coin.GetBalance(&bind.CallOpts{
+		Pending: true,
+	}, whom)
+	if err != nil {
+		return nil, fmt.Errorf("err get balance: %w", err)
+	}
+
+	return val, nil
 }
 
 type transactionOptions struct {
@@ -89,7 +119,6 @@ func (c *contractInstance) auth(o *transactionOptions) (*bind.TransactOpts, erro
 	auth.Value = o.value       // in wei
 	auth.GasLimit = o.gasLimit // in units
 	auth.GasPrice = o.gasPrice
-
 	return auth, nil
 
 }
