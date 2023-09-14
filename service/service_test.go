@@ -26,6 +26,23 @@ func TestParsePk(t *testing.T) {
 	fmt.Println(fromAddress.String())
 }
 
+func TestUmnarshal(t *testing.T) {
+	privateKey, err := crypto.HexToECDSA("74781f38a17f12cbf6855d4c53cc85b411f52e8ed1161326dedc3d49f75024da")
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey := privateKey.Public()
+	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
+	if !ok {
+		t.Fatal("nok")
+	}
+
+	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
+
+	fmt.Println(fromAddress.String())
+
+}
+
 func TestGenAddress(t *testing.T) {
 	privateKey, err := crypto.GenerateKey()
 	if err != nil {

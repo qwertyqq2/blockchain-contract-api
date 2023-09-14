@@ -10,6 +10,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"math/big"
 	"serv/config"
+	"time"
 )
 
 type Service interface {
@@ -75,9 +76,9 @@ func (s *impl) setup(ctx context.Context) error {
 
 	if s.contractAddress != "" {
 		logrus.Info("Setup contract...")
-		contract := contractInstance{}
+		contract := contractInstance{cli: s.cli}
 		addr := common.HexToAddress(s.contractAddress)
-		if err := contract.load(addr, s.cli); err != nil {
+		if err := contract.load(addr); err != nil {
 			return fmt.Errorf("err load contract: %w", err)
 		}
 		s.contract = contract
@@ -171,9 +172,34 @@ func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
 		pkKey:    s.pk,
 		chainID:  chainID,
 		nonce:    nonce,
-		gasPrice: big.NewInt(1000000),
+		gasPrice: big.NewInt(1000000000),
 		value:    big.NewInt(0),
 		gasLimit: uint64(3000000),
 	}, nil
 
+}
+
+func awaitTx(txHash common.Hash, cli *ethclient.Client, fn func(txHash common.Hash)) {
+	tctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour*8))
+
+	ticker := time.NewTicker(10 * time.Second)
+
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-tctx.Done():
+				return
+			case <-ticker.C:
+				_, pending, err := cli.TransactionByHash(tctx, txHash)
+				if err != nil {
+					return
+				}
+				if !pending {
+					fn(txHash)
+					return
+				}
+			}
+		}
+	}()
 }
