@@ -5,35 +5,57 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gofiber/fiber/v2"
-	"log"
+	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
 	"math/big"
+	"os"
 	"serv/config"
 	"serv/service"
+	"strconv"
+	"strings"
 )
 
+func must[A any](a A, err error) A {
+	if err != nil {
+		panic(err)
+	}
+
+	return a
+}
+
 func main() {
-	conf, err := config.Parse()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	serv, err := service.NewService(conf)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := serv.Connect(context.Background()); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := run(serv); err != nil {
-		log.Fatal(err)
+	if err := run(); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
 	}
 }
 
-func run(serv service.Service) error {
+func run() error {
+	serv, err := service.NewService(config.Conf{
+		PkKey:           os.Getenv("pk_key"),
+		ContractAddress: os.Getenv("contract_address"),
+		ProviderHost:    os.Getenv("provider_host"),
+		ProviderPort:    must(strconv.Atoi(os.Getenv("provider_port"))),
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := serv.Connect(context.Background()); err != nil {
+		return err
+	}
+
 	app := fiber.New()
 
+	app.Use(fiberlogger.New(fiberlogger.Config{
+		Next: func(c *fiber.Ctx) bool {
+			if strings.Contains(c.Path(), "app_ping") {
+				return true
+			}
+
+			return false
+		},
+	}))
+
+	// возвращает баланс пользователя по адресу
 	app.Get("/contract/:addr", func(ctx *fiber.Ctx) error {
 		addr := ctx.Params("addr")
 		if addr == "" {
@@ -50,6 +72,7 @@ func run(serv service.Service) error {
 		return ctx.JSON(fmt.Sprintf("balance: %s", balance.String()))
 	})
 
+	// создает новый контракт и привязывает его к сервису
 	app.Post("/contract", func(ctx *fiber.Ctx) error {
 		address, err := serv.Deploy(ctx.Context())
 		if err != nil {
@@ -59,6 +82,7 @@ func run(serv service.Service) error {
 		return ctx.JSON(fmt.Sprintf("contract address: %s", address.String()))
 	})
 
+	// выпускает новые токены
 	app.Post("/contract/mint", func(ctx *fiber.Ctx) error {
 		var mint mintInput
 		if err := ctx.BodyParser(&mint); err != nil {
@@ -78,6 +102,7 @@ func run(serv service.Service) error {
 
 	})
 
+	// переводит токены пользователю по адресу
 	app.Post("/contract/send", func(ctx *fiber.Ctx) error {
 		var send sendInput
 		if err := ctx.BodyParser(&send); err != nil {

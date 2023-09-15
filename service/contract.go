@@ -10,13 +10,21 @@ import (
 	"github.com/sirupsen/logrus"
 	"math/big"
 	"serv/coin"
+	"time"
 )
 
 type contractInstance struct {
-	coin         *coin.Coin
-	address      common.Address
+	// сам контракт
+	coin *coin.Coin
+
+	// адрес контракта
+	address common.Address
+
+	// общее количество токенов на контракте
 	resourseCoin *big.Int
-	balances     map[common.Address]*big.Int
+
+	// балансы пользователей
+	balances map[common.Address]*big.Int
 
 	cli *ethclient.Client
 }
@@ -32,6 +40,7 @@ func (c *contractInstance) deploy(ctx context.Context, o *transactionOptions) (*
 		return nil, err
 	}
 
+	// костыль, нужно как то обрабатывать завершенные транзакции
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
 		c.setupCoin(address, instance)
 		logrus.Info("tx success: ", txHash.String())
@@ -141,4 +150,30 @@ func (c *contractInstance) auth(o *transactionOptions) (*bind.TransactOpts, erro
 	auth.GasPrice = o.gasPrice
 	return auth, nil
 
+}
+
+// ждет пока транзация будет добавлена в блокчейн
+func awaitTx(txHash common.Hash, cli *ethclient.Client, fn func(txHash common.Hash)) {
+	tctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour*8))
+
+	ticker := time.NewTicker(10 * time.Second)
+
+	go func() {
+		defer cancel()
+		for {
+			select {
+			case <-tctx.Done():
+				return
+			case <-ticker.C:
+				_, pending, err := cli.TransactionByHash(tctx, txHash)
+				if err != nil {
+					return
+				}
+				if !pending {
+					fn(txHash)
+					return
+				}
+			}
+		}
+	}()
 }

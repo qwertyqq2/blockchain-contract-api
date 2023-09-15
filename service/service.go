@@ -10,9 +10,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"math/big"
 	"serv/config"
-	"time"
 )
 
+// Service - интерфейс для все эфириумоподобных блокчейнов
 type Service interface {
 	Connect(ctx context.Context) error
 	Deploy(ctx context.Context) (common.Address, error)
@@ -35,10 +35,6 @@ type impl struct {
 func NewService(conf config.Conf) (Service, error) {
 	serv := &impl{}
 
-	if conf.ProviderUrl == "" {
-		return nil, fmt.Errorf("undefined provider")
-	}
-
 	privateKey, err := crypto.HexToECDSA(conf.PkKey)
 	if err != nil {
 		return nil, fmt.Errorf("cant parse pk")
@@ -52,7 +48,9 @@ func NewService(conf config.Conf) (Service, error) {
 	serv.address = crypto.PubkeyToAddress(*publicKeyECDSA)
 	serv.pk = privateKey
 	serv.contractAddress = conf.ContractAddress
-	serv.providerUrl = conf.ProviderUrl
+	serv.providerUrl = conf.ProviderURL()
+
+	fmt.Println(conf.ProviderURL())
 
 	return serv, nil
 }
@@ -69,10 +67,10 @@ func (s *impl) Connect(ctx context.Context) error {
 
 	s.cli = client
 
-	return s.setup(ctx)
+	return s.setup()
 }
 
-func (s *impl) setup(ctx context.Context) error {
+func (s *impl) setup() error {
 	if s.contractAddress != "" {
 		logrus.Info("Setup contract...")
 		contract := contractInstance{cli: s.cli}
@@ -161,6 +159,8 @@ func (s *impl) GetBalance(ctx context.Context, address common.Address) (*big.Int
 	return balance, nil
 }
 
+// устанавливает gasPrice, gasLimit для транзакции
+// пока захардкожены
 func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
 	nonce, err := s.cli.PendingNonceAt(ctx, s.address)
 	if err != nil {
@@ -181,29 +181,4 @@ func (s *impl) currentAuth(ctx context.Context) (*transactionOptions, error) {
 		gasLimit: uint64(3000000),
 	}, nil
 
-}
-
-func awaitTx(txHash common.Hash, cli *ethclient.Client, fn func(txHash common.Hash)) {
-	tctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Hour*8))
-
-	ticker := time.NewTicker(10 * time.Second)
-
-	go func() {
-		defer cancel()
-		for {
-			select {
-			case <-tctx.Done():
-				return
-			case <-ticker.C:
-				_, pending, err := cli.TransactionByHash(tctx, txHash)
-				if err != nil {
-					return
-				}
-				if !pending {
-					fn(txHash)
-					return
-				}
-			}
-		}
-	}()
 }

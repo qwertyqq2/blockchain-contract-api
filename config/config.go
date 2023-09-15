@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"gopkg.in/yaml.v3"
 	"os"
 )
@@ -8,7 +9,12 @@ import (
 type Conf struct {
 	PkKey           string `yaml:"pk_key"`
 	ContractAddress string `yaml:"contract_address"`
-	ProviderUrl     string `yaml:"provider_url"`
+	ProviderHost    string `yaml:"provider_host"`
+	ProviderPort    int    `yaml:"provider_port"`
+}
+
+func (c Conf) ProviderURL() string {
+	return fmt.Sprintf("%s:%d", c.ProviderHost, c.ProviderPort)
 }
 
 func Parse() (Conf, error) {
