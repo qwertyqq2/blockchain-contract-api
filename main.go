@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/gofiber/fiber/v2"
-	fiberlogger "github.com/gofiber/fiber/v2/middleware/logger"
+	"log"
 	"math/big"
-	"os"
 	"serv/config"
 	"serv/service"
-	"strconv"
-	"strings"
 )
 
 func must[A any](a A, err error) A {
@@ -24,17 +21,18 @@ func must[A any](a A, err error) A {
 
 func main() {
 	if err := run(); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+		log.Fatal(err)
+		//_, _ = fmt.Fprintln(os.Stderr, err.Error())
 	}
 }
 
 func run() error {
-	serv, err := service.NewService(config.Conf{
-		PkKey:           os.Getenv("pk_key"),
-		ContractAddress: os.Getenv("contract_address"),
-		ProviderHost:    os.Getenv("provider_host"),
-		ProviderPort:    must(strconv.Atoi(os.Getenv("provider_port"))),
-	})
+	conf, err := config.Parse()
+	if err != nil {
+		return err
+	}
+
+	serv, err := service.NewService(conf)
 	if err != nil {
 		return err
 	}
@@ -44,16 +42,6 @@ func run() error {
 	}
 
 	app := fiber.New()
-
-	app.Use(fiberlogger.New(fiberlogger.Config{
-		Next: func(c *fiber.Ctx) bool {
-			if strings.Contains(c.Path(), "app_ping") {
-				return true
-			}
-
-			return false
-		},
-	}))
 
 	// возвращает баланс пользователя по адресу
 	app.Get("/contract/:addr", func(ctx *fiber.Ctx) error {
@@ -74,12 +62,12 @@ func run() error {
 
 	// создает новый контракт и привязывает его к сервису
 	app.Post("/contract", func(ctx *fiber.Ctx) error {
-		address, err := serv.Deploy(ctx.Context())
+		_, err := serv.Deploy(ctx.Context())
 		if err != nil {
-			return ctx.Status(fiber.StatusInternalServerError).JSON(err)
+			return ctx.Status(fiber.StatusInternalServerError).JSON(err.Error())
 		}
 
-		return ctx.JSON(fmt.Sprintf("contract address: %s", address.String()))
+		return ctx.JSON("ok")
 	})
 
 	// выпускает новые токены

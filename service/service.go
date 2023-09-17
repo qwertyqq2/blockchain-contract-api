@@ -26,7 +26,7 @@ type impl struct {
 	pk          *ecdsa.PrivateKey
 
 	contractAddress string
-	contract        contractInstance
+	contract        *contractInstance
 	cli             *ethclient.Client
 
 	address common.Address
@@ -50,16 +50,12 @@ func NewService(conf config.Conf) (Service, error) {
 	serv.contractAddress = conf.ContractAddress
 	serv.providerUrl = conf.ProviderURL()
 
-	fmt.Println(conf.ProviderURL())
+	fmt.Println(serv.providerUrl)
 
 	return serv, nil
 }
 
 func (s *impl) Connect(ctx context.Context) error {
-	if s.providerUrl == "" {
-		return fmt.Errorf("undef provider")
-	}
-
 	client, err := ethclient.DialContext(ctx, s.providerUrl)
 	if err != nil {
 		return fmt.Errorf("err conn: %w", err)
@@ -78,7 +74,7 @@ func (s *impl) setup() error {
 		if err := contract.load(addr); err != nil {
 			return fmt.Errorf("err load contract: %w", err)
 		}
-		s.contract = contract
+		s.contract = &contract
 	}
 
 	logrus.Info("Service is ready")
@@ -89,7 +85,7 @@ func (s *impl) setup() error {
 }
 
 func (s *impl) Deploy(ctx context.Context) (common.Address, error) {
-	contract := contractInstance{cli: s.cli}
+	contract := &contractInstance{cli: s.cli}
 
 	auth, err := s.currentAuth(ctx)
 	if err != nil {

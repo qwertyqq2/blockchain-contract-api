@@ -4,14 +4,9 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - node-ganache
-    environment:
-      pk_key: bec2bb762f575405bbba130bfad30ad33c68a87a93fbf11c69c95dc3dd6449c6
-      contract_address: 0x088d29AD554E82454F858B3F816D2Ad53995ef92
-      provider_host: http://localhost
-      provider_port: 8545
+      - ganache
 
-  node-ganache:
+  ganache:
     image: trufflesuite/ganache-cli:latest
     ports:
       - "8545:8545"
@@ -20,8 +15,6 @@ services:
       - /app/ganache-core.docker.cli.js
       - --deterministic
       - --db=/ganache_data
-      - --mnemonic
-      - 'minimum symptom minute gloom tragic situate silver mechanic salad amused elite beef'
       - --networkId
       - '5777'
       - --hostname

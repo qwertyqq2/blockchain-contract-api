@@ -1,5 +1,6 @@
-pk_key: bec2bb762f575405bbba130bfad30ad33c68a87a93fbf11c69c95dc3dd6449c6 # ключ из ganache
-contract_address: 0x088d29AD554E82454F858B3F816D2Ad53995ef92
-provider_url: http://localhost:8545 #не менять пока тестовая сеть
+pk_key: 4f3edf983ac636a65a842ce7c78d9aa706d3b113bce9c46f30d7d21715b23b1d # ключ из ganache
+contract_address:
+provider_host: http://ganache
+provider_port: 8545
 
 

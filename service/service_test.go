@@ -76,3 +76,19 @@ func TestGetCode(t *testing.T) {
 	fmt.Println(code)
 
 }
+
+func TestConnectGanache(t *testing.T) {
+	providerURL := "http://0.0.0.0:8545"
+
+	client, err := ethclient.DialContext(context.Background(), providerURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cid, err := client.ChainID(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fmt.Println(cid)
+}

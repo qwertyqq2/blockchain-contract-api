@@ -21,7 +21,7 @@ type contractInstance struct {
 	address common.Address
 
 	// общее количество токенов на контракте
-	resourseCoin *big.Int
+	resourse *big.Int
 
 	// балансы пользователей
 	balances map[common.Address]*big.Int
@@ -35,14 +35,16 @@ func (c *contractInstance) deploy(ctx context.Context, o *transactionOptions) (*
 		return nil, err
 	}
 
-	address, tx, instance, err := coin.DeployCoin(auth, c.cli)
+	address, tx, _, err := coin.DeployCoin(auth, c.cli)
 	if err != nil {
 		return nil, err
 	}
 
 	// костыль, нужно как то обрабатывать завершенные транзакции
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
-		c.setupCoin(address, instance)
+		if err := c.load(address); err != nil {
+			logrus.Error("err load contract: ", err.Error())
+		}
 		logrus.Info("tx success: ", txHash.String())
 	})
 	return &address, nil
@@ -54,16 +56,12 @@ func (c *contractInstance) load(addr common.Address) error {
 		return err
 	}
 
-	c.setupCoin(addr, instance)
-
-	return nil
-}
-
-func (c *contractInstance) setupCoin(address common.Address, instance *coin.Coin) {
-	c.address = address
+	c.address = addr
 	c.coin = instance
 	c.balances = make(map[common.Address]*big.Int)
-	c.resourseCoin = big.NewInt(0)
+	c.resourse = big.NewInt(0)
+
+	return nil
 }
 
 func (c *contractInstance) mintTokens(o *transactionOptions, count *big.Int) error {
@@ -78,7 +76,7 @@ func (c *contractInstance) mintTokens(o *transactionOptions, count *big.Int) err
 	}
 
 	awaitTx(tx.Hash(), c.cli, func(txHash common.Hash) {
-		c.resourseCoin = new(big.Int).Add(c.resourseCoin, count)
+		c.resourse = new(big.Int).Add(c.resourse, count)
 		logrus.Info("tx success: ", txHash.String())
 	})
 
